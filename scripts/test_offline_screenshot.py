@@ -1,0 +1,113 @@
+"""Test and capture screenshot of the EV Battery Web App strictly in OFFLINE mode."""
+
+import os
+import sys
+import time
+import subprocess
+import urllib.request
+import shutil
+
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+OUTPUT_PATH = os.path.join(REPO_ROOT, "plots", "offline_runaway_screenshot.png")
+ARTIFACT_PATH = "C:\\Users\\amard\\.gemini\\antigravity\\brain\\c89fc909-89ad-46fd-90e4-bf78aa2764c4\\offline_runaway_screenshot.png"
+
+
+def find_browser():
+    candidates = [
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    raise RuntimeError("No compatible headless browser found on system.")
+
+
+def main():
+    browser_exe = find_browser()
+    print(f"Browser binary: {browser_exe}")
+
+    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
+    if os.path.exists(OUTPUT_PATH):
+        os.remove(OUTPUT_PATH)
+
+    # 1. Start local FastAPI app server on isolated port 8008
+    port = 8008
+    env = os.environ.copy()
+    env["PORT"] = str(port)
+
+    print(f"Starting local FastAPI server on port {port}...")
+    proc = subprocess.Popen(
+        [sys.executable, "-u", "app.py"],
+        cwd=REPO_ROOT,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    url = f"http://127.0.0.1:{port}"
+    ready = False
+    for attempt in range(40):
+        time.sleep(0.4)
+        try:
+            with urllib.request.urlopen(f"{url}/static/chart.umd.min.js", timeout=2) as resp:
+                if resp.status == 200:
+                    ready = True
+                    print(f"Server ready & serving /static/chart.umd.min.js locally (status={resp.status})")
+                    break
+        except Exception:
+            pass
+
+    if not ready:
+        proc.kill()
+        out, err = proc.communicate()
+        print("Server stdout:", out.decode('latin1'))
+        print("Server stderr:", err.decode('latin1'))
+        raise RuntimeError("FastAPI server failed to start within timeout.")
+
+    # 2. Launch browser with EXTERNAL NETWORK COMPLETELY DISABLED
+    # Using Chromium's strict host resolver rule: MAP * ~NOTFOUND
+    # Every domain lookup (*.com, jsdelivr, google, etc.) fails with ERR_NAME_NOT_RESOLVED
+    # Only direct loopback 127.0.0.1 is permitted to reach the local FastAPI server.
+    target_url = f"{url}/?scenario=overcharge_runaway&t=580"
+    print(f"Opening {target_url} with external network disabled...")
+
+    cmd = [
+        browser_exe,
+        "--headless=new",
+        "--disable-gpu",
+        "--no-sandbox",
+        "--hide-scrollbars",
+        "--window-size=1500,1050",
+        "--virtual-time-budget=6000",
+        # Strict network isolation: All external hosts mapped to NOTFOUND
+        '--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1',
+        f"--screenshot={OUTPUT_PATH}",
+        target_url,
+    ]
+
+    try:
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
+        print("Browser return code:", res.returncode)
+    except Exception as e:
+        print("Browser execution error:", e)
+    finally:
+        proc.kill()
+        proc.wait()
+
+    # 3. Verify generated screenshot
+    if os.path.exists(OUTPUT_PATH) and os.path.getsize(OUTPUT_PATH) > 1000:
+        size_kb = os.path.getsize(OUTPUT_PATH) / 1024
+        print(f"SUCCESS: Offline screenshot captured at {OUTPUT_PATH} ({size_kb:.1f} KB)")
+        try:
+            shutil.copyfile(OUTPUT_PATH, ARTIFACT_PATH)
+            print(f"Copied to artifact directory: {ARTIFACT_PATH}")
+        except Exception as e:
+            print(f"Artifact copy notice: {e}")
+    else:
+        print(f"ERROR: Failed to capture offline screenshot at {OUTPUT_PATH}")
+
+
+if __name__ == "__main__":
+    main()

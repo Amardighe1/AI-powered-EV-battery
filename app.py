@@ -19,6 +19,7 @@ import numpy as np
 import joblib
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, FileResponse, Response
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -35,6 +36,9 @@ app = FastAPI(
     description="Software-only prototype for 4S2P Li-ion pack fault and early thermal runaway detection",
     version="1.0.0",
 )
+
+# Mount local static files directory (serving Chart.js locally with zero CDN dependency)
+app.mount("/static", StaticFiles(directory=os.path.join(REPO_ROOT, "static")), name="static")
 
 # Enable CORS for browser access
 app.add_middleware(
@@ -298,5 +302,6 @@ if __name__ == "__main__":
     import uvicorn
     # Make sure artifacts exist
     load_artifacts()
-    print("[FastAPI] Starting EV Battery Demo Server on http://127.0.0.1:8000 ...")
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    print(f"[FastAPI] Starting EV Battery Demo Server on http://127.0.0.1:{port} ...")
+    uvicorn.run(app, host="127.0.0.1", port=port)
