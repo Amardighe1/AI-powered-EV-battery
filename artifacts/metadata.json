@@ -1,0 +1,493 @@
+{
+  "timestamp": "2026-11-02 22:44:52",
+  "best_model": "random_forest",
+  "classes": {
+    "0": "Normal",
+    "1": "Abnormal",
+    "2": "Electrical fault",
+    "3": "Thermal fault",
+    "4": "Early warning",
+    "5": "Fire/critical"
+  },
+  "models": {
+    "threshold": {
+      "val_macro_f1": 0.7249338668390554,
+      "test_metrics": {
+        "accuracy": 0.882396177875781,
+        "macro_f1": 0.7646324091137959,
+        "weighted_f1": 0.8828822894811917,
+        "f1_per_class": [
+          0.9607548862322965,
+          0.8914927428753046,
+          0.7630121263536105,
+          0.6412141332700972,
+          0.587855676151364,
+          0.7434648898001025
+        ],
+        "precision_per_class": [
+          0.9921439387191592,
+          0.864830421377184,
+          0.6687953809815415,
+          0.5942857142857143,
+          0.7103360272224585,
+          0.5920408163265306
+        ],
+        "recall_per_class": [
+          0.9312910723542297,
+          0.9198513336248361,
+          0.8881273234200744,
+          0.6961894953656025,
+          0.5014011208967174,
+          0.9989669421487604
+        ],
+        "support_per_class": [
+          59803,
+          22870,
+          8608,
+          1942,
+          9992,
+          2904
+        ],
+        "confusion_matrix": [
+          [
+            55694,
+            3288,
+            73,
+            0,
+            748,
+            0
+          ],
+          [
+            161,
+            21037,
+            0,
+            923,
+            480,
+            269
+          ],
+          [
+            280,
+            0,
+            7645,
+            0,
+            683,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            1352,
+            129,
+            461
+          ],
+          [
+            0,
+            0,
+            3713,
+            0,
+            5010,
+            1269
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            3,
+            2901
+          ]
+        ]
+      },
+      "alarm_metrics": {
+        "overcharge_runaway": {
+          "detected_pct": 100.0,
+          "lead_time_min_s": 224.0,
+          "lead_time_med_s": 286.0,
+          "lead_time_max_s": 357.0,
+          "total_runs": 12
+        },
+        "internal_short_runaway": {
+          "detected_pct": 100.0,
+          "lead_time_min_s": 107.0,
+          "lead_time_med_s": 181.0,
+          "lead_time_max_s": 252.0,
+          "total_runs": 12
+        },
+        "false_alarms": {
+          "false_alarm_events": 17,
+          "total_test_hours": 26.1,
+          "false_alarms_per_hour": 0.651
+        }
+      },
+      "train_time_s": 0.0,
+      "inference_latency_ms": 0.0172
+    },
+    "random_forest": {
+      "val_macro_f1": 0.9294633037768841,
+      "test_metrics": {
+        "accuracy": 0.9576418925922785,
+        "macro_f1": 0.9227827836277139,
+        "weighted_f1": 0.9572838096908363,
+        "f1_per_class": [
+          0.9895912456282397,
+          0.9664479440069991,
+          0.8543026408273923,
+          0.8989433757789217,
+          0.8318880795467685,
+          0.9955234159779615
+        ],
+        "precision_per_class": [
+          0.9879666666666667,
+          0.966870897155361,
+          0.7522546419098143,
+          0.9485420240137221,
+          0.9848070079386806,
+          0.9955234159779615
+        ],
+        "recall_per_class": [
+          0.9912211761951741,
+          0.9660253607345868,
+          0.9883828996282528,
+          0.8542739443872297,
+          0.7200760608486789,
+          0.9955234159779615
+        ],
+        "support_per_class": [
+          59803,
+          22870,
+          8608,
+          1942,
+          9992,
+          2904
+        ],
+        "confusion_matrix": [
+          [
+            59278,
+            502,
+            23,
+            0,
+            0,
+            0
+          ],
+          [
+            692,
+            22093,
+            0,
+            85,
+            0,
+            0
+          ],
+          [
+            30,
+            0,
+            8508,
+            0,
+            70,
+            0
+          ],
+          [
+            0,
+            255,
+            0,
+            1659,
+            28,
+            0
+          ],
+          [
+            0,
+            0,
+            2779,
+            5,
+            7195,
+            13
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            13,
+            2891
+          ]
+        ]
+      },
+      "alarm_metrics": {
+        "overcharge_runaway": {
+          "detected_pct": 100.0,
+          "lead_time_min_s": 176.0,
+          "lead_time_med_s": 269.0,
+          "lead_time_max_s": 368.0,
+          "total_runs": 12
+        },
+        "internal_short_runaway": {
+          "detected_pct": 100.0,
+          "lead_time_min_s": 65.0,
+          "lead_time_med_s": 97.0,
+          "lead_time_max_s": 130.0,
+          "total_runs": 12
+        },
+        "false_alarms": {
+          "false_alarm_events": 13,
+          "total_test_hours": 26.1,
+          "false_alarms_per_hour": 0.498
+        }
+      },
+      "train_time_s": 2.22,
+      "inference_latency_ms": 22.2772
+    },
+    "1d_cnn": {
+      "val_macro_f1": 0.8619111881552707,
+      "test_metrics": {
+        "accuracy": 0.9164994016151679,
+        "macro_f1": 0.8905272864377397,
+        "weighted_f1": 0.917719393216281,
+        "f1_per_class": [
+          0.9564172602171357,
+          0.9019237481265526,
+          0.8082607230539642,
+          0.8809127644402187,
+          0.8015012021345218,
+          0.9941480206540447
+        ],
+        "precision_per_class": [
+          0.989943634248904,
+          0.8501373998529241,
+          0.6900945334977394,
+          0.8181015452538631,
+          0.9678515790964453,
+          0.993805918788713
+        ],
+        "recall_per_class": [
+          0.9250873701988195,
+          0.9604285089637079,
+          0.9752555762081785,
+          0.9541709577754892,
+          0.683947157726181,
+          0.9944903581267218
+        ],
+        "support_per_class": [
+          59803,
+          22870,
+          8608,
+          1942,
+          9992,
+          2904
+        ],
+        "confusion_matrix": [
+          [
+            55323,
+            3792,
+            688,
+            0,
+            0,
+            0
+          ],
+          [
+            551,
+            21965,
+            0,
+            354,
+            0,
+            0
+          ],
+          [
+            11,
+            0,
+            8395,
+            0,
+            202,
+            0
+          ],
+          [
+            0,
+            80,
+            0,
+            1853,
+            9,
+            0
+          ],
+          [
+            0,
+            0,
+            3082,
+            58,
+            6834,
+            18
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            16,
+            2888
+          ]
+        ]
+      },
+      "alarm_metrics": {
+        "overcharge_runaway": {
+          "detected_pct": 100.0,
+          "lead_time_min_s": 72.0,
+          "lead_time_med_s": 260.0,
+          "lead_time_max_s": 345.0,
+          "total_runs": 12
+        },
+        "internal_short_runaway": {
+          "detected_pct": 100.0,
+          "lead_time_min_s": 55.0,
+          "lead_time_med_s": 93.5,
+          "lead_time_max_s": 124.0,
+          "total_runs": 12
+        },
+        "false_alarms": {
+          "false_alarm_events": 3,
+          "total_test_hours": 26.1,
+          "false_alarms_per_hour": 0.115
+        }
+      },
+      "train_time_s": 90.63,
+      "inference_latency_ms": 0.5909
+    },
+    "ablation_no_gas": {
+      "base_model": "random_forest",
+      "val_macro_f1": 0.8665068160817553,
+      "test_metrics": {
+        "accuracy": 0.9022983631583411,
+        "macro_f1": 0.8766137021078464,
+        "weighted_f1": 0.9004415473259033,
+        "f1_per_class": [
+          0.9507619974059662,
+          0.8486932599724897,
+          0.7667043493782353,
+          0.8918918918918919,
+          0.8072998430141287,
+          0.9943308709843669
+        ],
+        "precision_per_class": [
+          0.9226835753732869,
+          0.9272906301824212,
+          0.7858275399438956,
+          0.9385665529010239,
+          0.7917628945342571,
+          0.9921151868357901
+        ],
+        "recall_per_class": [
+          0.9806029797836229,
+          0.7823786620026235,
+          0.7484897769516728,
+          0.8496395468589083,
+          0.8234587670136109,
+          0.9965564738292011
+        ],
+        "support_per_class": [
+          59803,
+          22870,
+          8608,
+          1942,
+          9992,
+          2904
+        ],
+        "confusion_matrix": [
+          [
+            58643,
+            1138,
+            22,
+            0,
+            0,
+            0
+          ],
+          [
+            4876,
+            17893,
+            0,
+            101,
+            0,
+            0
+          ],
+          [
+            38,
+            0,
+            6443,
+            0,
+            2127,
+            0
+          ],
+          [
+            0,
+            265,
+            0,
+            1650,
+            27,
+            0
+          ],
+          [
+            0,
+            0,
+            1734,
+            7,
+            8228,
+            23
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            10,
+            2894
+          ]
+        ]
+      },
+      "alarm_metrics": {
+        "overcharge_runaway": {
+          "detected_pct": 100.0,
+          "lead_time_min_s": 219.0,
+          "lead_time_med_s": 272.0,
+          "lead_time_max_s": 330.0,
+          "total_runs": 12
+        },
+        "internal_short_runaway": {
+          "detected_pct": 100.0,
+          "lead_time_min_s": 64.0,
+          "lead_time_med_s": 96.5,
+          "lead_time_max_s": 128.0,
+          "total_runs": 12
+        },
+        "false_alarms": {
+          "false_alarm_events": 19,
+          "total_test_hours": 26.1,
+          "false_alarms_per_hour": 0.728
+        }
+      },
+      "train_time_s": 1.59,
+      "inference_latency_ms": 27.1377,
+      "retained_features": [
+        "T_max_last",
+        "T_max_mean",
+        "T_max_slope_60s",
+        "dT_cell_last",
+        "dT_cell_mean",
+        "dT_cell_slope_60s",
+        "V_max_last",
+        "V_max_mean",
+        "V_max_slope_60s",
+        "V_min_last",
+        "V_min_mean",
+        "V_min_slope_60s",
+        "V_spread_last",
+        "V_spread_mean",
+        "V_spread_slope_60s",
+        "I_last",
+        "I_mean",
+        "I_slope_60s",
+        "T_amb_last",
+        "T_amb_mean",
+        "T_amb_slope_60s",
+        "T_max_slope_15s",
+        "V_min_slope_15s",
+        "SOC"
+      ]
+    }
+  }
+}

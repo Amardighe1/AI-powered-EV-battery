@@ -1,0 +1,57 @@
+{
+  "normal_drive": {
+    "elapsed_s": 0.374,
+    "n_samples": 1800,
+    "speed_samples_per_s": 4811.5
+  },
+  "normal_charge": {
+    "elapsed_s": 0.368,
+    "n_samples": 1800,
+    "speed_samples_per_s": 4884.8
+  },
+  "hot_ambient": {
+    "elapsed_s": 0.393,
+    "n_samples": 1800,
+    "speed_samples_per_s": 4583.0
+  },
+  "external_gas": {
+    "elapsed_s": 0.363,
+    "n_samples": 1800,
+    "speed_samples_per_s": 4952.8
+  },
+  "overcurrent": {
+    "elapsed_s": 0.362,
+    "n_samples": 1800,
+    "speed_samples_per_s": 4966.7
+  },
+  "over_discharge": {
+    "elapsed_s": 0.367,
+    "n_samples": 1800,
+    "speed_samples_per_s": 4910.5
+  },
+  "cooling_failure": {
+    "elapsed_s": 0.361,
+    "n_samples": 1800,
+    "speed_samples_per_s": 4991.9
+  },
+  "overcharge_runaway": {
+    "elapsed_s": 0.443,
+    "n_samples": 733,
+    "speed_samples_per_s": 1654.6
+  },
+  "internal_short_runaway": {
+    "elapsed_s": 0.589,
+    "n_samples": 450,
+    "speed_samples_per_s": 764.6
+  },
+  "overcharge_aborted": {
+    "elapsed_s": 1.074,
+    "n_samples": 1800,
+    "speed_samples_per_s": 1675.3
+  },
+  "soft_internal_short": {
+    "elapsed_s": 1.142,
+    "n_samples": 1800,
+    "speed_samples_per_s": 1576.2
+  }
+}

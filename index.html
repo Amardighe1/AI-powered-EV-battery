@@ -1,0 +1,1312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI-Powered EV Battery Fault & Fire Detection</title>
+  <!-- Chart.js from CDN with Offline Canvas Fallback -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    // Offline Canvas Fallback in case CDN is unreachable
+    if (typeof Chart === 'undefined') {
+      console.warn("Chart.js CDN unreachable; initializing high-performance Canvas fallback renderer.");
+      window.Chart = class SimpleCanvasChart {
+        constructor(canvas, config) {
+          this.canvas = canvas;
+          this.config = config;
+          this.ctx = canvas.getContext('2d');
+          this.data = config.data || { datasets: [] };
+          this.options = config.options || {};
+          this.update();
+        }
+        update() {
+          const ctx = this.ctx;
+          const rect = this.canvas.getBoundingClientRect();
+          const w = (this.canvas.width = rect.width || this.canvas.clientWidth || 600);
+          const h = (this.canvas.height = rect.height || this.canvas.clientHeight || 230);
+          ctx.clearRect(0, 0, w, h);
+
+          // Gridlines
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+          ctx.lineWidth = 1;
+          for (let y = 35; y < h - 25; y += 40) {
+            ctx.beginPath();
+            ctx.moveTo(45, y);
+            ctx.lineTo(w - 20, y);
+            ctx.stroke();
+          }
+
+          const datasets = this.data.datasets || [];
+          let minY = Infinity, maxY = -Infinity, minX = 0, maxX = 1;
+          datasets.forEach(ds => {
+            (ds.data || []).forEach(pt => {
+              if (pt.y < minY) minY = pt.y;
+              if (pt.y > maxY) maxY = pt.y;
+              if (pt.x > maxX) maxX = pt.x;
+            });
+          });
+          if (minY === Infinity) { minY = 0; maxY = 1; }
+          if (minY === maxY) { minY -= 1; maxY += 1; }
+
+          const padL = 48, padR = 20, padT = 28, padB = 24;
+          const plotW = Math.max(10, w - padL - padR);
+          const plotH = Math.max(10, h - padT - padB);
+
+          // Draw axes ticks
+          ctx.fillStyle = "#94a3b8";
+          ctx.font = "10px sans-serif";
+          ctx.fillText(maxY.toFixed(1), 5, padT + 8);
+          ctx.fillText(minY.toFixed(1), 5, h - padB);
+          ctx.fillText("0s", padL, h - 6);
+          ctx.fillText(`${Math.round(maxX)}s`, w - padR - 25, h - 6);
+
+          // Draw datasets
+          datasets.forEach(ds => {
+            if (!ds.data || ds.data.length === 0) return;
+            ctx.strokeStyle = ds.borderColor || "#38bdf8";
+            ctx.lineWidth = ds.borderWidth || 1.8;
+            if (ds.borderDash) ctx.setLineDash(ds.borderDash);
+            else ctx.setLineDash([]);
+
+            ctx.beginPath();
+            ds.data.forEach((pt, i) => {
+              const px = padL + ((pt.x - minX) / (maxX - minX || 1)) * plotW;
+              const py = padT + (1 - (pt.y - minY) / (maxY - minY || 1)) * plotH;
+              if (i === 0) ctx.moveTo(px, py);
+              else if (ds.stepped) {
+                const prevY = padT + (1 - (ds.data[i-1].y - minY) / (maxY - minY || 1)) * plotH;
+                ctx.lineTo(px, prevY);
+                ctx.lineTo(px, py);
+              } else {
+                ctx.lineTo(px, py);
+              }
+            });
+            ctx.stroke();
+          });
+          ctx.setLineDash([]);
+
+          // Legend
+          let legX = padL;
+          datasets.forEach(ds => {
+            ctx.fillStyle = ds.borderColor || "#38bdf8";
+            ctx.fillRect(legX, 8, 12, 4);
+            ctx.fillStyle = "#94a3b8";
+            ctx.fillText(ds.label || "", legX + 16, 13);
+            legX += ctx.measureText(ds.label || "").width + 25;
+          });
+        }
+      };
+    }
+  </script>
+  <style>
+    :root {
+      --bg-dark: #0f172a;
+      --bg-card: #1e293b;
+      --bg-card-border: #334155;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      
+      /* Class Color Hierarchy */
+      --c0-normal: #10b981;    /* Green */
+      --c1-abnormal: #f59e0b;  /* Amber */
+      --c2-electrical: #3b82f6;/* Blue */
+      --c3-thermal: #ea580c;   /* Orange */
+      --c4-early: #ef4444;     /* Red-Orange */
+      --c5-critical: #991b1b;  /* Deep Crimson */
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Top Navigation Bar */
+    header {
+      background-color: rgba(30, 41, 59, 0.95);
+      border-bottom: 1px solid var(--bg-card-border);
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: blur(8px);
+    }
+
+    .brand-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+    }
+
+    .brand-title .pack-badge {
+      background: #0284c7;
+      color: #fff;
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-weight: 600;
+    }
+
+    /* Permanent Research Prototype Badge */
+    .prototype-badge {
+      background: #78350f;
+      color: #fef3c7;
+      border: 1px solid #d97706;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .prototype-badge::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      background: #fbbf24;
+      border-radius: 50%;
+      display: inline-block;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.8); }
+    }
+
+    /* Main Container */
+    main {
+      flex: 1;
+      padding: 20px 24px;
+      max-width: 1600px;
+      width: 100%;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    /* Dynamic Status Banner */
+    .status-banner {
+      background: var(--c0-normal);
+      border-radius: 12px;
+      padding: 20px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: background-color 0.4s ease, box-shadow 0.4s ease;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .status-banner.class-0 { background: #065f46; border: 2px solid #10b981; }
+    .status-banner.class-1 { background: #78350f; border: 2px solid #f59e0b; }
+    .status-banner.class-2 { background: #1e3a8a; border: 2px solid #3b82f6; }
+    .status-banner.class-3 { background: #7c2d12; border: 2px solid #ea580c; }
+    .status-banner.class-4 { 
+      background: #991b1b; 
+      border: 3px solid #ef4444; 
+      animation: banner-pulse 1.2s infinite alternate; 
+    }
+    .status-banner.class-5 { 
+      background: #450a0a; 
+      border: 3px solid #ff0000; 
+      box-shadow: 0 0 35px rgba(255, 0, 0, 0.6);
+      animation: critical-flash 0.8s infinite alternate;
+    }
+
+    @keyframes banner-pulse {
+      from { box-shadow: 0 0 15px rgba(239, 68, 68, 0.4); }
+      to { box-shadow: 0 0 35px rgba(239, 68, 68, 0.9); }
+    }
+    @keyframes critical-flash {
+      from { border-color: #ff0000; background-color: #450a0a; }
+      to { border-color: #fca5a5; background-color: #7f1d1d; }
+    }
+
+    .banner-left {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .banner-pretitle {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-weight: 700;
+      opacity: 0.9;
+    }
+
+    .banner-title {
+      font-size: 2.1rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .banner-badge {
+      font-size: 0.9rem;
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .banner-telemetry {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+    }
+
+    .telem-item {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .telem-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      opacity: 0.85;
+      font-weight: 600;
+    }
+
+    .telem-val {
+      font-size: 1.3rem;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Grid Layout for Controls and Probability */
+    .top-grid {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 18px;
+    }
+
+    @media (max-width: 1024px) {
+      .top-grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--bg-card-border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .card-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--bg-card-border);
+      padding-bottom: 10px;
+    }
+
+    /* Controls Panel */
+    .controls-row {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    select, input[type="number"] {
+      background: #0f172a;
+      border: 1px solid var(--bg-card-border);
+      color: #fff;
+      padding: 9px 12px;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    select:focus, input[type="number"]:focus {
+      border-color: var(--accent);
+    }
+
+    .btn {
+      padding: 9px 18px;
+      border-radius: 6px;
+      border: none;
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: filter 0.2s, transform 0.1s;
+    }
+    .btn:hover { filter: brightness(1.1); }
+    .btn:active { transform: scale(0.98); }
+
+    .btn-primary { background: #0284c7; color: white; }
+    .btn-success { background: #059669; color: white; }
+    .btn-secondary { background: #334155; color: white; }
+
+    /* Timeline & Playback Scrubber */
+    .timeline-container {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .scrubber-track {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .scrubber-track input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .playback-controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 0.85rem;
+    }
+
+    .speed-pills {
+      display: flex;
+      gap: 6px;
+    }
+
+    .speed-btn {
+      background: #0f172a;
+      border: 1px solid var(--bg-card-border);
+      color: var(--text-muted);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .speed-btn.active {
+      background: #0284c7;
+      color: white;
+      border-color: #38bdf8;
+    }
+
+    /* Probability Bars */
+    .prob-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+    }
+
+    .prob-row {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .prob-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .prob-bar-bg {
+      background: #0f172a;
+      height: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .prob-bar-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 4px;
+      transition: width 0.15s ease-out;
+    }
+
+    /* Color classes */
+    .c0-fill { background: var(--c0-normal); }
+    .c1-fill { background: var(--c1-abnormal); }
+    .c2-fill { background: var(--c2-electrical); }
+    .c3-fill { background: var(--c3-thermal); }
+    .c4-fill { background: var(--c4-early); }
+    .c5-fill { background: var(--c5-critical); }
+
+    /* Charts Grid */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    @media (max-width: 1200px) {
+      .charts-grid { grid-template-columns: 1fr; }
+    }
+
+    .chart-card {
+      background: var(--bg-card);
+      border: 1px solid var(--bg-card-border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 290px;
+    }
+
+    .chart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.95rem;
+      font-weight: 700;
+    }
+
+    .chart-container {
+      position: relative;
+      flex: 1;
+      width: 100%;
+      height: 230px;
+    }
+
+    /* CSV Upload Box */
+    .csv-zone {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      background: #0f172a;
+      border: 1px dashed var(--bg-card-border);
+      border-radius: 8px;
+    }
+
+    .csv-zone input[type="file"] {
+      display: none;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--bg-card-border);
+      padding: 14px 24px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header Navigation -->
+  <header>
+    <div class="brand-title">
+      <span>AI-Powered EV Battery Safety System</span>
+      <span class="pack-badge">4S2P Li-ion (NMC)</span>
+    </div>
+    <div class="prototype-badge">
+      SIMULATED DATA - research prototype
+    </div>
+  </header>
+
+  <!-- Main Dashboard -->
+  <main>
+
+    <!-- Big Status Banner -->
+    <div id="statusBanner" class="status-banner class-0">
+      <div class="banner-left">
+        <div class="banner-pretitle" id="bannerPretitle">System Status (1 Hz Detection Loop)</div>
+        <div class="banner-title">
+          <span id="bannerText">NORMAL OPERATION</span>
+          <span id="bannerTag" class="banner-badge" style="display:none;"></span>
+        </div>
+      </div>
+      <div class="banner-telemetry">
+        <div class="telem-item">
+          <span class="telem-label">Sim Time</span>
+          <span class="telem-val" id="telemTime">t = 0 s</span>
+        </div>
+        <div class="telem-item">
+          <span class="telem-label">Max Cell Temp</span>
+          <span class="telem-val" id="telemTmax">25.0 °C</span>
+        </div>
+        <div class="telem-item">
+          <span class="telem-label">Min Voltage</span>
+          <span class="telem-val" id="telemVmin">3.70 V</span>
+        </div>
+        <div class="telem-item">
+          <span class="telem-label">Current</span>
+          <span class="telem-val" id="telemI">0.0 A</span>
+        </div>
+        <div class="telem-item">
+          <span class="telem-label">Alarm State</span>
+          <span class="telem-val" id="telemAlarm">CLEAR</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top Grid: Controls + Probability Bars -->
+    <div class="top-grid">
+      
+      <!-- Controls Panel -->
+      <div class="card">
+        <div class="card-title">
+          <span>Simulation & Replay Controls</span>
+          <span id="simMetaStatus" style="font-size:0.8rem; color:var(--text-muted);">Ready</span>
+        </div>
+
+        <div class="controls-row">
+          <div class="control-group" style="flex: 2; min-width: 220px;">
+            <label for="scenarioSelect">Scenario (11 Scenarios)</label>
+            <select id="scenarioSelect">
+              <option value="overcharge_runaway" selected>overcharge_runaway (Overcharge -> Thermal Runaway)</option>
+              <option value="internal_short_runaway">internal_short_runaway (Internal Short -> Thermal Runaway)</option>
+              <option value="normal_drive">normal_drive (Standard WLTP/Aggressive Driving)</option>
+              <option value="normal_charge">normal_charge (CC-CV Standard Charging)</option>
+              <option value="cooling_failure">cooling_failure (Fan/Cooling Deactivation)</option>
+              <option value="hot_ambient">hot_ambient (High Ambient 45°C Stress)</option>
+              <option value="external_gas">external_gas (Exogenous Smoke/CO2 Interference)</option>
+              <option value="overcurrent">overcurrent (Sustained Discharge Fault)</option>
+              <option value="over_discharge">over_discharge (Deep Discharge Below Cutoff)</option>
+              <option value="overcharge_aborted">overcharge_aborted (BMS Aborted Overcharge)</option>
+              <option value="soft_internal_short">soft_internal_short (Soft Internal Micro-Short)</option>
+            </select>
+          </div>
+
+          <div class="control-group" style="width: 80px;">
+            <label for="seedInput">Seed</label>
+            <input type="number" id="seedInput" value="42" min="1" max="99999">
+          </div>
+
+          <div class="control-group" style="justify-content: flex-end;">
+            <button id="btnRun" class="btn btn-primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              Run Simulation
+            </button>
+          </div>
+        </div>
+
+        <!-- Playback / Scrubber -->
+        <div class="timeline-container">
+          <div class="scrubber-track">
+            <span id="timeCurrent" style="font-size:0.8rem; font-variant-numeric:tabular-nums; color:var(--text-muted);">0 s</span>
+            <input type="range" id="timeScrubber" min="0" max="100" value="0">
+            <span id="timeTotal" style="font-size:0.8rem; font-variant-numeric:tabular-nums; color:var(--text-muted);">0 s</span>
+          </div>
+
+          <div class="playback-controls">
+            <div style="display:flex; gap:8px;">
+              <button id="btnPlayPause" class="btn btn-secondary" style="padding: 5px 12px; font-size: 0.8rem;">
+                ⏸ Pause
+              </button>
+              <button id="btnReset" class="btn btn-secondary" style="padding: 5px 12px; font-size: 0.8rem;">
+                ⏮ Restart
+              </button>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase;">Speed:</span>
+              <div class="speed-pills">
+                <button class="speed-btn" data-speed="1">1x</button>
+                <button class="speed-btn" data-speed="2">2x</button>
+                <button class="speed-btn active" data-speed="5">5x</button>
+                <button class="speed-btn" data-speed="15">15x</button>
+                <button class="speed-btn" data-speed="50">50x</button>
+                <button class="speed-btn" data-speed="999">Max</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CSV Upload Box -->
+        <div class="csv-zone">
+          <label class="btn btn-secondary" style="margin:0; padding:6px 12px; font-size:0.8rem; cursor:pointer;">
+            📁 Upload 14-Col CSV
+            <input type="file" id="csvFileInput" accept=".csv">
+          </label>
+          <span style="font-size:0.8rem; color:var(--text-muted); flex:1;" id="csvStatusText">
+            Supports custom CSV (14 raw channels, &ge;60 rows).
+          </span>
+          <button id="btnSampleCsv" class="btn btn-secondary" style="padding:6px 10px; font-size:0.75rem;">
+            Download Sample CSV
+          </button>
+        </div>
+
+      </div>
+
+      <!-- Probability Bars Panel -->
+      <div class="card">
+        <div class="card-title">
+          <span>Model Probabilities (Softmax)</span>
+          <span id="predClassLabel" style="font-size:0.85rem; font-weight:700; color:var(--c0-normal);">Class 0 (Normal)</span>
+        </div>
+
+        <div class="prob-grid">
+          <!-- Class 0 -->
+          <div class="prob-row">
+            <div class="prob-meta">
+              <span>0: Normal Pack Operation</span>
+              <span id="probVal0" style="font-variant-numeric:tabular-nums;">100.0%</span>
+            </div>
+            <div class="prob-bar-bg"><div id="probBar0" class="prob-bar-fill c0-fill" style="width: 100%;"></div></div>
+          </div>
+
+          <!-- Class 1 -->
+          <div class="prob-row">
+            <div class="prob-meta">
+              <span>1: Abnormal (Spread / Ext Gas)</span>
+              <span id="probVal1" style="font-variant-numeric:tabular-nums;">0.0%</span>
+            </div>
+            <div class="prob-bar-bg"><div id="probBar1" class="prob-bar-fill c1-fill"></div></div>
+          </div>
+
+          <!-- Class 2 -->
+          <div class="prob-row">
+            <div class="prob-meta">
+              <span>2: Electrical Fault (V / I Anomaly)</span>
+              <span id="probVal2" style="font-variant-numeric:tabular-nums;">0.0%</span>
+            </div>
+            <div class="prob-bar-bg"><div id="probBar2" class="prob-bar-fill c2-fill"></div></div>
+          </div>
+
+          <!-- Class 3 -->
+          <div class="prob-row">
+            <div class="prob-meta">
+              <span>3: Thermal Fault (T &ge; 60 °C)</span>
+              <span id="probVal3" style="font-variant-numeric:tabular-nums;">0.0%</span>
+            </div>
+            <div class="prob-bar-bg"><div id="probBar3" class="prob-bar-fill c3-fill"></div></div>
+          </div>
+
+          <!-- Class 4 -->
+          <div class="prob-row">
+            <div class="prob-meta">
+              <span>4: Early Warning (Runaway Precursor)</span>
+              <span id="probVal4" style="font-variant-numeric:tabular-nums; color:#ef4444;">0.0%</span>
+            </div>
+            <div class="prob-bar-bg"><div id="probBar4" class="prob-bar-fill c4-fill"></div></div>
+          </div>
+
+          <!-- Class 5 -->
+          <div class="prob-row">
+            <div class="prob-meta">
+              <span>5: Critical Fire / Thermal Runaway</span>
+              <span id="probVal5" style="font-variant-numeric:tabular-nums; color:#ff4444;">0.0%</span>
+            </div>
+            <div class="prob-bar-bg"><div id="probBar5" class="prob-bar-fill c5-fill"></div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Live Charts Grid -->
+    <div class="charts-grid">
+
+      <!-- Chart 1: Temperatures -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <span>Surface & Hot-spot Temperatures</span>
+          <span style="font-size:0.75rem; color:var(--text-muted);">DS18B20 & K-Type (°C)</span>
+        </div>
+        <div class="chart-container">
+          <canvas id="chartTemps"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart 2: Voltages & Current -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <span>Cell Voltages & Pack Current</span>
+          <span style="font-size:0.75rem; color:var(--text-muted);">V1-4 (V) & Pack Current I (A)</span>
+        </div>
+        <div class="chart-container">
+          <canvas id="chartVoltages"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart 3: Gas Concentrations -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <span>Gas Concentrations & Smoke Obscuration</span>
+          <span style="font-size:0.75rem; color:var(--text-muted);">CO2 (ppm), CO (ppm), Smoke (raw)</span>
+        </div>
+        <div class="chart-container">
+          <canvas id="chartGas"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart 4: Class Timeline -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <span>Safety Classification Timeline</span>
+          <span style="font-size:0.75rem; color:var(--text-muted);">Predicted vs Faint Ground Truth</span>
+        </div>
+        <div class="chart-container">
+          <canvas id="chartClasses"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    AI-Powered EV Battery Fault and Fire Detection Prototype &bull; 4S2P Li-ion System &bull; Research Simulation Model
+  </footer>
+
+  <!-- Dashboard Application Logic -->
+  <script>
+    // Global State
+    let currentRunData = null;
+    let playbackIdx = 0;
+    let isPlaying = false;
+    let playbackSpeed = 5; // 5x default
+    let animTimer = null;
+    let charts = {};
+
+    const CLASS_LABELS = [
+      "0: Normal",
+      "1: Abnormal",
+      "2: Electrical Fault",
+      "3: Thermal Fault",
+      "4: Early Warning",
+      "5: Critical Fire"
+    ];
+
+    const CLASS_NAMES = [
+      "NORMAL OPERATION",
+      "ABNORMAL CONDITION",
+      "ELECTRICAL FAULT",
+      "THERMAL FAULT",
+      "EARLY RUNAWAY WARNING",
+      "CRITICAL THERMAL RUNAWAY"
+    ];
+
+    const CLASS_COLORS = [
+      "#10b981", // 0
+      "#f59e0b", // 1
+      "#3b82f6", // 2
+      "#ea580c", // 3
+      "#ef4444", // 4
+      "#991b1b", // 5
+    ];
+
+    // DOM Elements
+    const statusBanner = document.getElementById("statusBanner");
+    const bannerText = document.getElementById("bannerText");
+    const bannerTag = document.getElementById("bannerTag");
+    const telemTime = document.getElementById("telemTime");
+    const telemTmax = document.getElementById("telemTmax");
+    const telemVmin = document.getElementById("telemVmin");
+    const telemI = document.getElementById("telemI");
+    const telemAlarm = document.getElementById("telemAlarm");
+    const timeScrubber = document.getElementById("timeScrubber");
+    const timeCurrent = document.getElementById("timeCurrent");
+    const timeTotal = document.getElementById("timeTotal");
+    const btnPlayPause = document.getElementById("btnPlayPause");
+    const btnReset = document.getElementById("btnReset");
+    const btnRun = document.getElementById("btnRun");
+    const scenarioSelect = document.getElementById("scenarioSelect");
+    const seedInput = document.getElementById("seedInput");
+    const simMetaStatus = document.getElementById("simMetaStatus");
+    const predClassLabel = document.getElementById("predClassLabel");
+    const csvFileInput = document.getElementById("csvFileInput");
+    const csvStatusText = document.getElementById("csvStatusText");
+    const btnSampleCsv = document.getElementById("btnSampleCsv");
+
+    // Initialize Chart.js with dark theme defaults
+    function initCharts() {
+      const darkOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        elements: { point: { radius: 0 }, line: { borderWidth: 1.8 } },
+        scales: {
+          x: {
+            type: 'linear',
+            grid: { color: 'rgba(255, 255, 255, 0.06)' },
+            ticks: { color: '#94a3b8', font: { size: 10 } }
+          },
+          y: {
+            grid: { color: 'rgba(255, 255, 255, 0.06)' },
+            ticks: { color: '#94a3b8', font: { size: 10 } }
+          }
+        },
+        plugins: {
+          legend: { labels: { color: '#f8fafc', font: { size: 10 }, boxWidth: 10, padding: 8 } }
+        }
+      };
+
+      // 1. Temperatures Chart
+      charts.temps = new Chart(document.getElementById('chartTemps'), {
+        type: 'line',
+        data: {
+          datasets: [
+            { label: 'T1', borderColor: '#2dd4bf', data: [] },
+            { label: 'T2', borderColor: '#06b6d4', data: [] },
+            { label: 'T3', borderColor: '#38bdf8', data: [] },
+            { label: 'T4', borderColor: '#60a5fa', data: [] },
+            { label: 'T_hs (K-Type)', borderColor: '#f97316', borderWidth: 2.5, data: [] },
+            { label: 'T_amb', borderColor: '#94a3b8', borderDash: [4, 4], data: [] }
+          ]
+        },
+        options: {
+          ...darkOptions,
+          scales: {
+            ...darkOptions.scales,
+            y: { ...darkOptions.scales.y, title: { display: true, text: '°C', color: '#94a3b8' } }
+          }
+        }
+      });
+
+      // 2. Voltages & Current Chart
+      charts.voltages = new Chart(document.getElementById('chartVoltages'), {
+        type: 'line',
+        data: {
+          datasets: [
+            { label: 'V1', borderColor: '#34d399', yAxisID: 'yV', data: [] },
+            { label: 'V2', borderColor: '#10b981', yAxisID: 'yV', data: [] },
+            { label: 'V3', borderColor: '#059669', yAxisID: 'yV', data: [] },
+            { label: 'V4', borderColor: '#047857', yAxisID: 'yV', data: [] },
+            { label: 'Pack Current (I)', borderColor: '#a855f7', borderWidth: 2, yAxisID: 'yI', data: [] }
+          ]
+        },
+        options: {
+          ...darkOptions,
+          scales: {
+            x: darkOptions.scales.x,
+            yV: {
+              type: 'linear', position: 'left',
+              grid: { color: 'rgba(255, 255, 255, 0.06)' },
+              ticks: { color: '#34d399', font: { size: 10 } },
+              title: { display: true, text: 'Voltage (V)', color: '#34d399' }
+            },
+            yI: {
+              type: 'linear', position: 'right',
+              grid: { drawOnChartArea: false },
+              ticks: { color: '#a855f7', font: { size: 10 } },
+              title: { display: true, text: 'Current (A)', color: '#a855f7' }
+            }
+          }
+        }
+      });
+
+      // 3. Gas Concentrations Chart
+      charts.gas = new Chart(document.getElementById('chartGas'), {
+        type: 'line',
+        data: {
+          datasets: [
+            { label: 'CO2 (NDIR)', borderColor: '#38bdf8', borderWidth: 2, yAxisID: 'yCO2', data: [] },
+            { label: 'CO (MQ-7)', borderColor: '#fbbf24', borderWidth: 2, yAxisID: 'yCO', data: [] },
+            { label: 'Smoke (MQ-2)', borderColor: '#f87171', borderWidth: 1.5, yAxisID: 'yCO', data: [] }
+          ]
+        },
+        options: {
+          ...darkOptions,
+          scales: {
+            x: darkOptions.scales.x,
+            yCO2: {
+              type: 'linear', position: 'left',
+              grid: { color: 'rgba(255, 255, 255, 0.06)' },
+              ticks: { color: '#38bdf8', font: { size: 10 } },
+              title: { display: true, text: 'CO2 (ppm)', color: '#38bdf8' }
+            },
+            yCO: {
+              type: 'linear', position: 'right',
+              grid: { drawOnChartArea: false },
+              ticks: { color: '#fbbf24', font: { size: 10 } },
+              title: { display: true, text: 'CO (ppm) / Smoke', color: '#fbbf24' }
+            }
+          }
+        }
+      });
+
+      // 4. Class Timeline Chart
+      charts.classes = new Chart(document.getElementById('chartClasses'), {
+        type: 'line',
+        data: {
+          datasets: [
+            {
+              label: 'Predicted Class (3-Sample Persistence)',
+              borderColor: '#f59e0b',
+              stepped: true,
+              borderWidth: 2.5,
+              data: []
+            },
+            {
+              label: 'Ground Truth State (Physical)',
+              borderColor: 'rgba(255, 255, 255, 0.35)',
+              borderDash: [5, 5],
+              stepped: true,
+              borderWidth: 1.5,
+              data: []
+            }
+          ]
+        },
+        options: {
+          ...darkOptions,
+          scales: {
+            x: darkOptions.scales.x,
+            y: {
+              min: -0.2, max: 5.2,
+              grid: { color: 'rgba(255, 255, 255, 0.06)' },
+              ticks: {
+                stepSize: 1,
+                color: '#f8fafc',
+                callback: function(val) { return ['Normal', 'Abnormal', 'Elec', 'Therm', 'Early', 'Fire'][val] || ''; }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // Populate all charts with full run data
+    function loadRunIntoCharts(run) {
+      const times = run.time;
+      const sensors = run.sensors;
+      const preds = run.predicted_class;
+      const trueLabels = run.true_label;
+
+      // 1. Temps
+      charts.temps.data.datasets[0].data = times.map((t, i) => ({ x: t, y: sensors[i][5] }));
+      charts.temps.data.datasets[1].data = times.map((t, i) => ({ x: t, y: sensors[i][6] }));
+      charts.temps.data.datasets[2].data = times.map((t, i) => ({ x: t, y: sensors[i][7] }));
+      charts.temps.data.datasets[3].data = times.map((t, i) => ({ x: t, y: sensors[i][8] }));
+      charts.temps.data.datasets[4].data = times.map((t, i) => ({ x: t, y: sensors[i][9] }));
+      charts.temps.data.datasets[5].data = times.map((t, i) => ({ x: t, y: sensors[i][10] }));
+      charts.temps.update();
+
+      // 2. Voltages & Current
+      charts.voltages.data.datasets[0].data = times.map((t, i) => ({ x: t, y: sensors[i][0] }));
+      charts.voltages.data.datasets[1].data = times.map((t, i) => ({ x: t, y: sensors[i][1] }));
+      charts.voltages.data.datasets[2].data = times.map((t, i) => ({ x: t, y: sensors[i][2] }));
+      charts.voltages.data.datasets[3].data = times.map((t, i) => ({ x: t, y: sensors[i][3] }));
+      charts.voltages.data.datasets[4].data = times.map((t, i) => ({ x: t, y: sensors[i][4] }));
+      charts.voltages.update();
+
+      // 3. Gas
+      charts.gas.data.datasets[0].data = times.map((t, i) => ({ x: t, y: sensors[i][13] }));
+      charts.gas.data.datasets[1].data = times.map((t, i) => ({ x: t, y: sensors[i][12] }));
+      charts.gas.data.datasets[2].data = times.map((t, i) => ({ x: t, y: sensors[i][11] }));
+      charts.gas.update();
+
+      // 4. Classes
+      charts.classes.data.datasets[0].data = times.map((t, i) => ({ x: t, y: preds[i] }));
+      if (trueLabels && trueLabels.length > 0) {
+        charts.classes.data.datasets[1].data = times.map((t, i) => ({ x: t, y: trueLabels[i] }));
+      } else {
+        charts.classes.data.datasets[1].data = [];
+      }
+      charts.classes.update();
+    }
+
+    // Update real-time telemetry, banner, probability bars for sample index t
+    function updatePlaybackStep(idx) {
+      if (!currentRunData || idx < 0 || idx >= currentRunData.n_steps) return;
+      playbackIdx = idx;
+
+      const t = currentRunData.time[idx];
+      const s = currentRunData.sensors[idx];
+      const cls = currentRunData.predicted_class[idx];
+      const probs = currentRunData.probs[idx];
+      const alarm = currentRunData.alarm_state[idx];
+
+      // Update Scrubber
+      timeScrubber.value = idx;
+      timeCurrent.textContent = `${Math.round(t)} s`;
+
+      // Telemetry
+      const tMax = Math.max(...s.slice(5, 10));
+      const vMin = Math.min(...s.slice(0, 4));
+      const curr = s[4];
+
+      telemTime.textContent = `t = ${Math.round(t)} s`;
+      telemTmax.textContent = `${tMax.toFixed(1)} °C`;
+      telemVmin.textContent = `${vMin.toFixed(2)} V`;
+      telemI.textContent = `${curr.toFixed(1)} A`;
+
+      // Status Banner
+      statusBanner.className = `status-banner class-${cls}`;
+      bannerText.textContent = CLASS_NAMES[cls];
+      predClassLabel.textContent = CLASS_LABELS[cls];
+      predClassLabel.style.color = CLASS_COLORS[cls];
+
+      if (cls === 4) {
+        bannerTag.textContent = "EARLY WARNING";
+        bannerTag.style.display = "inline-block";
+        bannerTag.style.background = "#b91c1c";
+        telemAlarm.textContent = "EARLY ALARM";
+        telemAlarm.style.color = "#ef4444";
+      } else if (cls === 5) {
+        bannerTag.textContent = "CRITICAL / FIRE";
+        bannerTag.style.display = "inline-block";
+        bannerTag.style.background = "#7f1d1d";
+        telemAlarm.textContent = "CRITICAL FIRE";
+        telemAlarm.style.color = "#ff4444";
+      } else {
+        bannerTag.style.display = "none";
+        telemAlarm.textContent = alarm ? "ALARM" : "CLEAR";
+        telemAlarm.style.color = alarm ? "#f59e0b" : "#f8fafc";
+      }
+
+      // Update Probability Bars
+      for (let c = 0; c < 6; c++) {
+        const pct = (probs[c] * 100).toFixed(1);
+        document.getElementById(`probVal${c}`).textContent = `${pct}%`;
+        document.getElementById(`probBar${c}`).style.width = `${pct}%`;
+      }
+    }
+
+    // Playback loop
+    function startPlayback() {
+      if (isPlaying) return;
+      isPlaying = true;
+      btnPlayPause.textContent = "⏸ Pause";
+
+      const stepInterval = 1000 / playbackSpeed;
+      animTimer = setInterval(() => {
+        if (!currentRunData) return;
+        if (playbackIdx >= currentRunData.n_steps - 1) {
+          pausePlayback();
+          return;
+        }
+        updatePlaybackStep(playbackIdx + 1);
+      }, stepInterval);
+    }
+
+    function pausePlayback() {
+      isPlaying = false;
+      btnPlayPause.textContent = "▶ Play";
+      if (animTimer) clearInterval(animTimer);
+    }
+
+    // Fetch scenario simulation
+    async function runSimulation() {
+      const scenario = scenarioSelect.value;
+      const seed = parseInt(seedInput.value) || 42;
+
+      simMetaStatus.textContent = "Simulating physics & inference...";
+      btnRun.disabled = true;
+      pausePlayback();
+
+      try {
+        const resp = await fetch("/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scenario, seed })
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          throw new Error(err.detail || "Simulation failed");
+        }
+
+        const data = await resp.json();
+        currentRunData = data;
+        simMetaStatus.textContent = `Completed in ${data.compute_time_s}s (${data.n_steps}s run)`;
+
+        timeScrubber.max = data.n_steps - 1;
+        timeTotal.textContent = `${Math.round(data.time[data.n_steps - 1])} s`;
+
+        loadRunIntoCharts(data);
+        updatePlaybackStep(0);
+        startPlayback();
+
+      } catch (err) {
+        alert("Error: " + err.message);
+        simMetaStatus.textContent = "Error";
+      } finally {
+        btnRun.disabled = false;
+      }
+    }
+
+    // Handle CSV Upload
+    async function handleCsvUpload(file) {
+      if (!file) return;
+      const formData = new FormData();
+      formData.append("file", file);
+
+      csvStatusText.textContent = "Processing uploaded CSV...";
+      pausePlayback();
+
+      try {
+        const resp = await fetch("/predict_csv", {
+          method: "POST",
+          body: formData
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          throw new Error(err.detail || "CSV evaluation failed");
+        }
+
+        const data = await resp.json();
+        currentRunData = data;
+        csvStatusText.textContent = `Loaded ${data.n_steps} rows successfully!`;
+
+        timeScrubber.max = data.n_steps - 1;
+        timeTotal.textContent = `${Math.round(data.time[data.n_steps - 1])} s`;
+
+        loadRunIntoCharts(data);
+        updatePlaybackStep(0);
+        startPlayback();
+
+      } catch (err) {
+        alert("CSV Upload Error: " + err.message);
+        csvStatusText.textContent = "Upload failed: " + err.message;
+      }
+    }
+
+    // Event Listeners
+    btnRun.addEventListener("click", runSimulation);
+
+    btnPlayPause.addEventListener("click", () => {
+      if (isPlaying) pausePlayback();
+      else startPlayback();
+    });
+
+    btnReset.addEventListener("click", () => {
+      pausePlayback();
+      updatePlaybackStep(0);
+    });
+
+    timeScrubber.addEventListener("input", (e) => {
+      pausePlayback();
+      updatePlaybackStep(parseInt(e.target.value));
+    });
+
+    // Speed pills
+    document.querySelectorAll(".speed-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".speed-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        playbackSpeed = parseFloat(btn.dataset.speed);
+        if (isPlaying) {
+          pausePlayback();
+          startPlayback();
+        }
+      });
+    });
+
+    // CSV File selector
+    csvFileInput.addEventListener("change", (e) => {
+      if (e.target.files.length > 0) {
+        handleCsvUpload(e.target.files[0]);
+      }
+    });
+
+    // Download Sample CSV
+    btnSampleCsv.addEventListener("click", () => {
+      window.location.href = `/sample_csv?scenario=${scenarioSelect.value}&seed=${seedInput.value}`;
+    });
+
+    // Populate scenario dropdown on init
+    async function loadScenarios() {
+      try {
+        const resp = await fetch("/scenarios");
+        if (resp.ok) {
+          const data = await resp.json();
+          // Update options if not already matching
+          console.log("Scenarios loaded:", data.scenarios);
+        }
+      } catch (e) {
+        console.warn("Could not fetch /scenarios, using defaults", e);
+      }
+    }
+
+    // Startup
+    window.addEventListener("DOMContentLoaded", async () => {
+      initCharts();
+      await loadScenarios();
+
+      // Check URL parameters: e.g. ?scenario=overcharge_runaway&t=580 or ?scenario=internal_short_runaway&step=runaway
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.has("scenario")) {
+        scenarioSelect.value = urlParams.get("scenario");
+      }
+      if (urlParams.has("seed")) {
+        seedInput.value = urlParams.get("seed");
+      }
+
+      await runSimulation();
+
+      // If specific time or step requested in URL, jump to it
+      if (currentRunData) {
+        if (urlParams.has("t")) {
+          const targetT = parseFloat(urlParams.get("t"));
+          const targetIdx = currentRunData.time.findIndex(t => t >= targetT);
+          if (targetIdx !== -1) {
+            updatePlaybackStep(targetIdx);
+            pausePlayback();
+          }
+        } else if (urlParams.get("step") === "runaway" && currentRunData.t_runaway_onset) {
+          const targetIdx = Math.max(0, currentRunData.t_runaway_onset - 20);
+          updatePlaybackStep(targetIdx);
+          pausePlayback();
+        } else if (urlParams.get("step") === "critical" && currentRunData.t_runaway_onset) {
+          const targetIdx = Math.min(currentRunData.n_steps - 1, currentRunData.t_runaway_onset + 15);
+          updatePlaybackStep(targetIdx);
+          pausePlayback();
+        }
+      }
+    });
+  </script>
+</body>
+</html>

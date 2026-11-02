@@ -1,0 +1,20 @@
+# Python Bytecode and Artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Testing and Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local Environments
+.env
+.venv/
+venv/
+ENV/
+
+# Temporary / Scratch files
+*.tmp
+*.log
